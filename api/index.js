@@ -2,20 +2,14 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "path";
 import * as url from "url";
 
-// Определяем текущую директорию serverless-функции
 const __dirname = url.fileURLToPath(new URL(".", import.meta.url));
 
-// Пути к JSON-файлам
 const DB_FILE = path.resolve(__dirname, "../db.json");
 const ORDER_FILE = path.resolve(__dirname, "../order.json");
 
-// Чтение базы
 const db = JSON.parse(readFileSync(DB_FILE, "utf-8"));
 let orders = JSON.parse(readFileSync(ORDER_FILE, "utf-8"));
 
-// --------- УТИЛИТЫ ---------
-
-// Чтение JSON тела запроса
 async function getJsonBody(req) {
   const buffers = [];
   for await (const chunk of req) buffers.push(chunk);
@@ -23,7 +17,6 @@ async function getJsonBody(req) {
   return JSON.parse(data || "{}");
 }
 
-// Ошибки API
 class ApiError extends Error {
   constructor(statusCode, data) {
     super();
@@ -32,7 +25,6 @@ class ApiError extends Error {
   }
 }
 
-// Мешалка
 function shuffle(array) {
   const a = [...array];
   for (let i = a.length - 1; i > 0; i--) {
@@ -42,7 +34,6 @@ function shuffle(array) {
   return a;
 }
 
-// Пагинация
 function pagination(data, page, count) {
   const end = count * page;
   const start = page === 1 ? 0 : end - count;
@@ -54,8 +45,6 @@ function pagination(data, page, count) {
     totalCount: data.length,
   };
 }
-
-// --------- ЛОГИКА API ---------
 
 function createOrder(data) {
   if (!data.order?.length)
@@ -142,11 +131,8 @@ function getGoodsList(params) {
   return pagination(data, page, count);
 }
 
-// --------- SERVERLESS HANDLER VERCEL ---------
-
 export default async function handler(req, res) {
   try {
-    // CORS
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -156,39 +142,44 @@ export default async function handler(req, res) {
       return;
     }
 
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const pathname = url.pathname;
-    const searchParams = Object.fromEntries(url.searchParams.entries());
+    const base = `http://${req.headers.host}`;
+    const urlObj = new URL(req.url, base);
 
-    // --- РОУТЫ ---
+    // ВАЖНО:
+    // /api/index.js → endpoint /api/index
+    // значит API начинается с /api/index/...
+    const fullPath = urlObj.pathname;
+    const apiPath = fullPath.replace("/api/index", "") || "/";
 
-    if (pathname === "/api/categories") {
+    const search = Object.fromEntries(urlObj.searchParams.entries());
+
+    if (apiPath === "/api/categories") {
       res.status(200).json(db.categories);
       return;
     }
 
-    if (pathname === "/api/colors") {
+    if (apiPath === "/api/colors") {
       res.status(200).json(db.colors);
       return;
     }
 
-    if (pathname === "/api/order" && req.method === "POST") {
+    if (apiPath === "/api/order" && req.method === "POST") {
       const body = await getJsonBody(req);
       const order = createOrder(body);
 
-      res.setHeader("Location", `/api/order/${order.id}`);
+      res.setHeader("Location", `/api/index/api/order/${order.id}`);
       res.status(201).json(order);
       return;
     }
 
-    if (pathname === "/api/goods") {
-      const list = getGoodsList(searchParams);
+    if (apiPath === "/api/goods") {
+      const list = getGoodsList(search);
       res.status(200).json(list);
       return;
     }
 
-    if (pathname.startsWith("/api/goods/")) {
-      const id = pathname.replace("/api/goods/", "");
+    if (apiPath.startsWith("/api/goods/")) {
+      const id = apiPath.replace("/api/goods/", "");
       const item = getItems(id);
       res.status(200).json(item);
       return;
